@@ -1,0 +1,22 @@
+BasedOnStyle: Google
+Language: Cpp
+
+ColumnLimit: 100
+IndentWidth: 2
+DerivePointerAlignment: false
+PointerAlignment: Left
+
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^"pch.h"'
+    Priority: -1
+  - Regex: '^"Defines.h"'
+    Priority: 1
+  - Regex: '^"Types.h"'
+    Priority: 1
+  - Regex: '^<.*\.h>'
+    Priority: 2
+  - Regex: '^<.*>'
+    Priority: 3
+  - Regex: '.*'
+    Priority: 4
