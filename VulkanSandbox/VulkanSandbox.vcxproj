@@ -70,7 +70,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>C:\VulkanSDK\1.2.135.0\Include;$(SolutionDir)VulkanSandbox\vendor\glm;$(SolutionDir)VulkanSandbox\vendor\stb_image;$(SolutionDir)VulkanSandbox\vendor\tinyobjloader</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\VulkanSDK\1.2.135.0\Include;$(SolutionDir)VulkanSandbox\vendor\glm;$(SolutionDir)VulkanSandbox\vendor\stb_image;$(SolutionDir)VulkanSandbox\vendor\tinyobjloader;$(SolutionDir)VulkanSandbox\vendor\imgui</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -90,7 +90,8 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>C:\VulkanSDK\1.2.135.0\Include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\VulkanSDK\1.2.135.0\Include;$(SolutionDir)VulkanSandbox\vendor\glm;$(SolutionDir)VulkanSandbox\vendor\stb_image;$(SolutionDir)VulkanSandbox\vendor\tinyobjloader;$(SolutionDir)VulkanSandbox\vendor\imgui</AdditionalIncludeDirectories>
+      <Optimization>Disabled</Optimization>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -104,6 +105,22 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="vendor\imgui\examples\imgui_impl_vulkan.cpp" />
+    <ClCompile Include="vendor\imgui\examples\imgui_impl_win32.cpp" />
+    <ClCompile Include="vendor\imgui\imgui.cpp" />
+    <ClCompile Include="vendor\imgui\imgui_demo.cpp" />
+    <ClCompile Include="vendor\imgui\imgui_draw.cpp" />
+    <ClCompile Include="vendor\imgui\imgui_widgets.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="vendor\imgui\examples\imgui_impl_vulkan.h" />
+    <ClInclude Include="vendor\imgui\examples\imgui_impl_win32.h" />
+    <ClInclude Include="vendor\imgui\imconfig.h" />
+    <ClInclude Include="vendor\imgui\imgui.h" />
+    <ClInclude Include="vendor\imgui\imgui_internal.h" />
+    <ClInclude Include="vendor\imgui\imstb_rectpack.h" />
+    <ClInclude Include="vendor\imgui\imstb_textedit.h" />
+    <ClInclude Include="vendor\imgui\imstb_truetype.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

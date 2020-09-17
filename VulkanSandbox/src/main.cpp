@@ -12,7 +12,7 @@
 #define FORCEINLINE __forceinline
 #define FORCENOINLINE _declspec(noinline)
 #define ALIGN(n) __declspec(align(n))
-#define TRACE
+//#define TRACE
 #if defined(_DEBUG) || defined(TRACE)
 #define DEBUG
 #endif
@@ -22,6 +22,9 @@
 
 // Includes
 #include <Windows.h>
+#include <examples/imgui_impl_vulkan.h>
+#include <examples/imgui_impl_win32.h>
+#include <imgui.h>
 #include <stb_image.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -117,7 +120,8 @@ LogLevel _logLevel = LogLevel::Trace;
 #elif defined(DEBUG)
 LogLevel _logLevel = LogLevel::Debug;
 #else
-LogLevel _logLevel = LogLevel::Info;
+//LogLevel _logLevel = LogLevel::Info;
+LogLevel _logLevel = LogLevel::Debug;
 #endif
 
 void WriteLog(LogLevel level, const char* message, ...) {
@@ -198,11 +202,9 @@ namespace std {
 template <>
 struct hash<Vertex> {
   size_t operator()(Vertex const& vertex) const {
-    glm::mat4 mat;
-    mat[0] = {vertex.Position.x, vertex.Position.y, vertex.Position.z, vertex.TexCoord.x};
-    mat[1] = {vertex.Normal.x, vertex.Normal.y, vertex.Normal.z, vertex.TexCoord.y};
-    mat[2] = {vertex.Color.x, vertex.Color.y, vertex.Color.z, 0.0f};
-    return hash<glm::mat4>{}(mat);
+    return hash<glm::mat4>{}(glm::mat4(vertex.Position.x, vertex.Position.y, vertex.Position.z, vertex.TexCoord.x,
+                  vertex.Normal.x, vertex.Normal.y, vertex.Normal.z, vertex.TexCoord.y,
+                  vertex.Color.x, vertex.Color.y, vertex.Color.z, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
   }
 };
 }  // namespace std
@@ -254,25 +256,30 @@ struct Mesh {
     for (const auto& shape : objectShapes) {
       for (const auto& index : shape.mesh.indices) {
         Vertex vertex{};
+        U64 vertexOffset = 3LL * static_cast<U64>(index.vertex_index);
+        U64 normalOffset = 3LL * static_cast<U64>(index.normal_index);
+        U64 texOffset = 2LL * static_cast<U64>(index.texcoord_index);
 
-        vertex.Position = {objectAttribs.vertices[3 * index.vertex_index + 0],
-                           objectAttribs.vertices[3 * index.vertex_index + 1],
-                           objectAttribs.vertices[3 * index.vertex_index + 2]};
-        vertex.Normal = {objectAttribs.normals[3 * index.normal_index + 0],
-                         objectAttribs.normals[3 * index.normal_index + 1],
-                         objectAttribs.normals[3 * index.normal_index + 2]};
+        vertex.Position = {objectAttribs.vertices[vertexOffset + 0LL],
+                           objectAttribs.vertices[vertexOffset + 1LL],
+                           objectAttribs.vertices[vertexOffset + 2LL]};
+        vertex.Normal = {objectAttribs.normals[normalOffset + 0LL],
+                         objectAttribs.normals[normalOffset + 1LL],
+                         objectAttribs.normals[normalOffset + 2LL]};
         if (index.texcoord_index != -1) {
-          vertex.TexCoord = {objectAttribs.texcoords[2 * index.texcoord_index + 0],
-                             1.0f - objectAttribs.texcoords[2 * index.texcoord_index + 1]};
+          vertex.TexCoord = {objectAttribs.texcoords[texOffset + 0LL],
+                             1.0f - objectAttribs.texcoords[texOffset + 1LL]};
         }
         vertex.Color = {1.0f, 1.0f, 1.0f};
 
         if (uniqueVertices.count(vertex) == 0) {
-          uniqueVertices[vertex] = static_cast<U32>(Vertices.size());
+          const U32 nextIndex = static_cast<U32>(Vertices.size());
+          uniqueVertices[vertex] = nextIndex;
           Vertices.push_back(vertex);
+          Indices.push_back(nextIndex);
+        } else {
+          Indices.push_back(uniqueVertices[vertex]);
         }
-
-        Indices.push_back(uniqueVertices[vertex]);
       }
     }
   }
@@ -333,11 +340,14 @@ static struct VulkanContext {
   VkDeviceMemory DepthImageMemory = VK_NULL_HANDLE;
   VkImageView DepthImageView = VK_NULL_HANDLE;
   std::list<Object*> ObjectsToRender;
+  VkDescriptorPool ImguiPool;
 } vk;
 
 // ======================================================================
 // Function Declarations
 // ======================================================================
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam,
+                                                             LPARAM lParam);
 static VKAPI_ATTR VkBool32 VKAPI_CALL
 VulkanDebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
                     VkDebugUtilsMessageTypeFlagsEXT messageType,
@@ -1775,7 +1785,7 @@ LRESULT CALLBACK ApplicationWindowProcedure(HWND hwnd, U32 msg, WPARAM wParam, L
         return true;
       }
   }
-
+  ImGui_ImplWin32_WndProcHandler(hwnd, msg, wParam, lParam);
   return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
@@ -1843,6 +1853,8 @@ bool CreateImage(U32 width, U32 height, VkFormat format, VkImageTiling tiling,
   VkCall(vkAllocateMemory(vk.Device, &allocateInfo, nullptr, &memory));
 
   vkBindImageMemory(vk.Device, image, memory, 0);
+
+  return true;
 }
 
 void TransitionImageLayout(VkImage image, VkFormat format, VkImageLayout srcLayout,
@@ -2349,6 +2361,11 @@ void Run() {
     ShowWindow(app.Window, SW_SHOW);
   }
 
+  U32 vulkanVersion;
+  vkEnumerateInstanceVersion(&vulkanVersion);
+  LogInfo("Vulkan Version: %d.%d.%d", VK_VERSION_MAJOR(vulkanVersion),
+          VK_VERSION_MINOR(vulkanVersion), VK_VERSION_PATCH(vulkanVersion));
+
   // =====
   // Vulkan Instance
   // =====
@@ -2380,14 +2397,15 @@ void Run() {
                                                          VK_EXT_DEBUG_UTILS_EXTENSION_NAME};
     constexpr static const char* instanceLayers[] = {"VK_LAYER_KHRONOS_validation"};
     constexpr static const void* pNext = static_cast<const void*>(&debugCreateInfo);
+    constexpr static U32 instanceCount = sizeof(instanceExtensions) / sizeof(*instanceExtensions);
+    constexpr static U32 layerCount = sizeof(instanceLayers) / sizeof(*instanceLayers);
 #else
     constexpr static const char* instanceExtensions[] = {"VK_KHR_surface", "VK_KHR_win32_surface"};
     constexpr static const char** instanceLayers = nullptr;
     constexpr static const void* pNext = nullptr;
-#endif
-
     constexpr static U32 instanceCount = sizeof(instanceExtensions) / sizeof(*instanceExtensions);
-    constexpr static U32 layerCount = sizeof(instanceLayers) / sizeof(*instanceLayers);
+    constexpr static U32 layerCount = 0;
+#endif
 
     constexpr static VkInstanceCreateInfo createInfo{
         VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,  // sType
@@ -2448,9 +2466,10 @@ void Run() {
     VkCall(vkCreateInstance(&createInfo, nullptr, &vk.Instance));
   }
 
-  // =====
-  // Vulkan Debug Messenger
-  // =====
+// =====
+// Vulkan Debug Messenger
+// =====
+#ifdef DEBUG
   {
     auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
         vk.Instance, "vkCreateDebugUtilsMessengerEXT");
@@ -2460,6 +2479,7 @@ void Run() {
       throw std::runtime_error("Failed to locate function vkCreateDebugUtilsMessengerEXT!");
     }
   }
+#endif
 
   // =====
   // Vulkan Surface
@@ -2967,13 +2987,100 @@ void Run() {
   // =====
   // Load assets
   // =====
-  Object* obj = new Object(new Mesh("assets/models/viking_room.obj"),
-                           new UnlitTexturedMaterial("assets/textures/viking_room.png"));
-  //obj->Enable();
+  /*Object* obj = new Object(new Mesh("assets/models/viking_room.obj"),
+                           new UnlitTexturedMaterial("assets/textures/viking_room.png"));*/
+  // obj->Enable();
   Object* cube = new Object(new Mesh("assets/models/cube.obj"), new LitMaterial());
   cube->Enable();
   Object* lightCube = new Object(new Mesh("assets/models/cube.obj"), new UnlitMaterial());
   lightCube->Enable();
+
+  // =====
+  // ImGUI Initialization
+  // =====
+  {
+    const VkDescriptorPoolSize poolSizes[] = {{
+        VK_DESCRIPTOR_TYPE_SAMPLER,  // type
+        vk.SwapchainImageCount       // descriptorCount
+    }};
+
+    const VkDescriptorPoolCreateInfo createInfo{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,  // sType
+        nullptr,                                        // pNext
+        0,                                              // flags
+        vk.SwapchainImageCount,                         // maxSets
+        ArrLen(poolSizes),                              // poolSizeCount
+        poolSizes                                       // pPoolSizes
+    };
+    VkCall(vkCreateDescriptorPool(vk.Device, &createInfo, nullptr, &vk.ImguiPool));
+  }
+  ImGui_ImplVulkan_InitInfo imguiVulkan{
+      vk.Instance,                                 // Instance
+      vk.PhysicalDevice,                           // PhysicalDevice
+      vk.Device,                                   // Device
+      vk.PhysicalDeviceInfo.Queues.GraphicsIndex,  // QueueFamily
+      vk.GraphicsQueue,                            // Queue
+      VK_NULL_HANDLE,                              // PipelineCache
+      vk.ImguiPool,                                // DescriptorPool
+      vk.SwapchainImageCount,                      // MinImageCount
+      vk.SwapchainImageCount,                      // ImageCount
+      VK_SAMPLE_COUNT_1_BIT,                       // MSAASamples
+      nullptr,                                     // Allocator
+      nullptr                                      // CheckVkResultFn
+  };
+  ImGui::CreateContext();
+  ImGuiIO& io = ImGui::GetIO();
+  io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+  ImGuiPlatformIO& pio = ImGui::GetPlatformIO();
+  pio.Platform_CreateVkSurface = [](ImGuiViewport* vp, ImU64 vk_inst, const void* vk_allocators,
+                                    ImU64* out_vk_surface) -> int {
+    VkInstance instance = reinterpret_cast<VkInstance>(vk_inst);
+    const VkWin32SurfaceCreateInfoKHR createInfo{
+        VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,  // sType
+        nullptr,                                          // pNext
+        0,                                                // flags
+        app.Instance,                                     // hinstance
+        (HWND)vp->PlatformHandle                          // hwnd
+    };
+
+    return vkCreateWin32SurfaceKHR(instance, &createInfo, (VkAllocationCallbacks*)vk_allocators,
+                                   (VkSurfaceKHR*)out_vk_surface);
+  };
+  ImGui_ImplVulkan_Init(&imguiVulkan, vk.RenderPass);
+  ImGui_ImplWin32_Init(app.Window);
+
+  // Set up ImGui fonts
+  {
+    VkCommandBuffer& cmdBuf = vk.CommandBuffers[0];
+
+    VkCommandBufferBeginInfo beginInfo{
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,  // sType
+        nullptr,                                      // pNext
+        0,                                            // flags
+        nullptr                                       // pInheritanceInfo
+    };
+    VkCall(vkBeginCommandBuffer(cmdBuf, &beginInfo));
+
+    ImGui_ImplVulkan_CreateFontsTexture(cmdBuf);
+
+    VkCall(vkEndCommandBuffer(cmdBuf));
+
+    const VkSubmitInfo submitInfo{
+        VK_STRUCTURE_TYPE_SUBMIT_INFO,  // sType
+        nullptr,                        // pNext
+        0,                              // waitSemaphoreCount
+        nullptr,                        // pWaitSemaphores
+        0,                              // pWaitDstStageMask
+        1,                              // commandBufferCount
+        &cmdBuf,                        // pCommandBuffers
+        0,                              // signalSemaphoreCount
+        nullptr                         // pSignalSemaphores
+    };
+
+    VkCall(vkQueueSubmit(vk.GraphicsQueue, 1, &submitInfo, VK_NULL_HANDLE));
+
+    vkDeviceWaitIdle(vk.Device);
+  }
 
   // =====
   // Main application loop
@@ -2986,6 +3093,12 @@ void Run() {
       TranslateMessage(&message);
       DispatchMessageW(&message);
     }
+
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplWin32_NewFrame();
+    ImGui::NewFrame();
+
+    ImGui::ShowDemoWindow(nullptr);
 
     // Render
     {
@@ -3057,6 +3170,12 @@ void Run() {
                            0);
         }
 
+        ImGui::Render();
+        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmdBuf, VK_NULL_HANDLE);
+
+        ImGui::UpdatePlatformWindows();
+        ImGui::RenderPlatformWindowsDefault();
+
         // vkCmdEndRenderPass
         { vkCmdEndRenderPass(cmdBuf); }
 
@@ -3120,9 +3239,12 @@ void Run() {
   // =====
   {
     vkDeviceWaitIdle(vk.Device);
+    ImGui_ImplVulkan_DestroyFontUploadObjects();
+    ImGui_ImplVulkan_Shutdown();
+    vkDestroyDescriptorPool(vk.Device, vk.ImguiPool, nullptr);
     delete lightCube;
     delete cube;
-    delete obj;
+    //delete obj;
     for (U32 i = 0; i < 2; i++) {
       vkDestroyFence(vk.Device, vk.InFlightFences[i], nullptr);
       vkDestroySemaphore(vk.Device, vk.RenderFinishedSemaphores[i], nullptr);
@@ -3143,6 +3265,7 @@ void Run() {
     vkDestroyCommandPool(vk.Device, vk.TransferCommandPool, nullptr);
     vkDestroyDevice(vk.Device, nullptr);
     vkDestroySurfaceKHR(vk.Instance, vk.Surface, nullptr);
+#ifdef DEBUG
     {
       auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
           vk.Instance, "vkDestroyDebugUtilsMessengerEXT");
@@ -3150,7 +3273,9 @@ void Run() {
         func(vk.Instance, vk.DebugMessenger, nullptr);
       }
     }
+#endif
     vkDestroyInstance(vk.Instance, nullptr);
+    ImGui_ImplWin32_Shutdown();
     DestroyWindow(app.Window);
   }
 }
