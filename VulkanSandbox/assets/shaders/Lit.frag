@@ -3,11 +3,15 @@
 
 layout(location = 0) in vec3 vNormal;
 layout(location = 1) in vec3 vPosition;
+layout(location = 2) in vec2 vTexcoord;
+layout(location = 3) in vec3 vColor;
+
+layout(binding = 1) uniform sampler2D texSampler;
 
 layout(location = 0) out vec4 outColor;
 
 void main() {
-    vec3 objectColor = vec3(1.0, 0.5, 0.31);
+    vec3 objectColor = vec4(texture(texSampler, vTexcoord) * vec4(vColor, 1.0)).xyz;
     vec3 lightColor = vec3(1.0, 1.0, 1.0);
     vec3 lightPos = vec3(1.0, 0.5, 1.0);
     vec3 viewPos = vec3(2.0, 2.0, 2.0);

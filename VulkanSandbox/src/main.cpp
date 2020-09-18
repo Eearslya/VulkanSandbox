@@ -3,6 +3,7 @@
 // ======================================================================
 
 // Defines / Constants
+#define PI 3.14159f
 #define U32_MAX 0xfffffffful
 #define U64_MAX 0xffffffffffffffffull
 #define NOMINMAX
@@ -12,7 +13,7 @@
 #define FORCEINLINE __forceinline
 #define FORCENOINLINE _declspec(noinline)
 #define ALIGN(n) __declspec(align(n))
-//#define TRACE
+#define TRACE
 #if defined(_DEBUG) || defined(TRACE)
 #define DEBUG
 #endif
@@ -120,7 +121,7 @@ LogLevel _logLevel = LogLevel::Trace;
 #elif defined(DEBUG)
 LogLevel _logLevel = LogLevel::Debug;
 #else
-//LogLevel _logLevel = LogLevel::Info;
+// LogLevel _logLevel = LogLevel::Info;
 LogLevel _logLevel = LogLevel::Debug;
 #endif
 
@@ -202,7 +203,8 @@ namespace std {
 template <>
 struct hash<Vertex> {
   size_t operator()(Vertex const& vertex) const {
-    return hash<glm::mat4>{}(glm::mat4(vertex.Position.x, vertex.Position.y, vertex.Position.z, vertex.TexCoord.x,
+    return hash<glm::mat4>{}(
+        glm::mat4(vertex.Position.x, vertex.Position.y, vertex.Position.z, vertex.TexCoord.x,
                   vertex.Normal.x, vertex.Normal.y, vertex.Normal.z, vertex.TexCoord.y,
                   vertex.Color.x, vertex.Color.y, vertex.Color.z, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
   }
@@ -221,6 +223,8 @@ struct Mesh {
   VkBuffer Buffer = VK_NULL_HANDLE;
   VkDeviceMemory DeviceMemory = VK_NULL_HANDLE;
   VkDeviceSize IndicesOffset = 0;
+
+  Mesh() = default;
 
   Mesh(const std::vector<Vertex>& vertices, const std::vector<U32>& indices) {
     Vertices = vertices;
@@ -282,6 +286,178 @@ struct Mesh {
         }
       }
     }
+    LogDebug(" - Final Count: %d vertices used by %d indices", Vertices.size(), Indices.size());
+  }
+};
+
+struct SphereMesh : public Mesh {
+ public:
+  SphereMesh(F32 radius = 1.0f, U32 sectorCount = 36, U32 stackCount = 18,
+             const glm::vec3& color = glm::vec3(1.0f)) {
+    const F32 sectorStep = 2 * PI / sectorCount;
+    const F32 stackStep = PI / stackCount;
+
+    Vertices.reserve(static_cast<U64>(stackCount * sectorCount));
+    Indices.reserve(static_cast<U64>(stackCount * sectorCount * 3));
+
+    F32 x, y, z, xy;
+    F32 nx, ny, nz, lengthInv = 1.0f / radius;
+    F32 s, t;
+    F32 sectorAngle, stackAngle;
+
+    for (U32 i = 0; i <= stackCount; i++) {
+      stackAngle = PI / 2 - i * stackStep;
+      xy = radius * cosf(stackAngle);
+      z = radius * sinf(stackAngle);
+
+      for (U32 j = 0; j <= sectorCount; j++) {
+        sectorAngle = j * sectorStep;
+
+        x = xy * cosf(sectorAngle);
+        y = xy * sinf(sectorAngle);
+
+        nx = x * lengthInv;
+        ny = y * lengthInv;
+        nz = z * lengthInv;
+
+        s = static_cast<F32>(j) / sectorCount;
+        t = static_cast<F32>(i) / stackCount;
+
+        Vertices.push_back(Vertex{{x, y, z}, {nx, ny, nz}, {s, t}, color});
+      }
+    }
+
+    U32 k1, k2;
+    for (U32 i = 0; i < stackCount; i++) {
+      k1 = i * (sectorCount + 1);
+      k2 = k1 + sectorCount + 1;
+
+      for (U32 j = 0; j < sectorCount; j++, k1++, k2++) {
+        if (i != 0) {
+          Indices.push_back(k1);
+          Indices.push_back(k2);
+          Indices.push_back(k1 + 1);
+        }
+        if (i != (stackCount - 1)) {
+          Indices.push_back(k1 + 1);
+          Indices.push_back(k2);
+          Indices.push_back(k2 + 1);
+        }
+      }
+    }
+
+    LogDebug("Generated 'Sphere' object");
+    LogDebug(" - Stacks / Sectors: %d / %d", stackCount, sectorCount);
+    LogDebug(" - Vertex Count:     %d", Vertices.size());
+    LogDebug(" - Index Count:      %d", Indices.size());
+  }
+};
+
+struct FlatSphereMesh : public Mesh {
+ public:
+  FlatSphereMesh(F32 radius = 1.0f, U32 sectorCount = 36, U32 stackCount = 18,
+                 const glm::vec3& color = glm::vec3(1.0f)) {
+    const F32 sectorStep = 2 * PI / sectorCount;
+    const F32 stackStep = PI / stackCount;
+
+    auto faceNormal = [](const glm::vec3& p1, const glm::vec3& p2,
+                         const glm::vec3& p3) -> glm::vec3 {
+      const glm::vec3 n = glm::cross(p2 - p1, p3 - p1);
+      F32 mag = glm::length(n);
+      if (mag > glm::epsilon<F32>()) {
+        return glm::normalize(n);
+      }
+
+      return glm::vec3(0.0f);
+    };
+
+    Vertices.reserve(static_cast<U64>(stackCount * sectorCount));
+    Indices.reserve(stackCount * sectorCount * 3);
+
+    std::vector<glm::vec3> tmpPositions;
+    tmpPositions.reserve(static_cast<U64>(stackCount * sectorCount));
+    std::vector<glm::vec2> tmpTexcoords;
+    tmpTexcoords.reserve(static_cast<U64>(stackCount * sectorCount));
+
+    F32 x, y, z, xy;
+    F32 s, t;
+    F32 sectorAngle, stackAngle;
+
+    for (U32 i = 0; i <= stackCount; i++) {
+      stackAngle = PI / 2 - i * stackStep;
+      xy = radius * cosf(stackAngle);
+      z = radius * sinf(stackAngle);
+
+      for (U32 j = 0; j <= sectorCount; j++) {
+        sectorAngle = j * sectorStep;
+
+        x = xy * cosf(sectorAngle);
+        y = xy * sinf(sectorAngle);
+        tmpPositions.push_back(glm::vec3(x, y, z));
+
+        s = static_cast<F32>(j) / sectorCount;
+        t = static_cast<F32>(i) / stackCount;
+        tmpTexcoords.push_back(glm::vec2(s, t));
+      }
+    }
+
+    U32 vi1, vi2, index = 0;
+    for (U32 i = 0; i < stackCount; i++) {
+      vi1 = i * (sectorCount + 1);
+      vi2 = (i + 1) * (sectorCount + 1);
+
+      for (U32 j = 0; j < sectorCount; j++, vi1++, vi2++) {
+        const glm::vec3& vp1 = tmpPositions[vi1];
+        const glm::vec3& vp2 = tmpPositions[vi2];
+        const glm::vec3& vp3 = tmpPositions[vi1 + 1];
+        const glm::vec3& vp4 = tmpPositions[vi2 + 1];
+
+        const glm::vec2& vt1 = tmpTexcoords[vi1];
+        const glm::vec2& vt2 = tmpTexcoords[vi2];
+        const glm::vec2& vt3 = tmpTexcoords[vi1 + 1];
+        const glm::vec2& vt4 = tmpTexcoords[vi2 + 1];
+
+        if (i == 0) {
+          const glm::vec3 vn = faceNormal(vp1, vp2, vp4);
+          Vertices.push_back(Vertex{vp1, vn, vt1, color});
+          Vertices.push_back(Vertex{vp2, vn, vt2, color});
+          Vertices.push_back(Vertex{vp4, vn, vt4, color});
+
+          Indices.push_back(index++);
+          Indices.push_back(index++);
+          Indices.push_back(index++);
+        } else if (i == (stackCount - 1)) {
+          const glm::vec3 vn = faceNormal(vp1, vp2, vp3);
+          Vertices.push_back(Vertex{vp1, vn, vt1, color});
+          Vertices.push_back(Vertex{vp2, vn, vt2, color});
+          Vertices.push_back(Vertex{vp3, vn, vt3, color});
+
+          Indices.push_back(index++);
+          Indices.push_back(index++);
+          Indices.push_back(index++);
+        } else {
+          const glm::vec3 vn = faceNormal(vp1, vp2, vp3);
+          Vertices.push_back(Vertex{vp1, vn, vt1, color});
+          Vertices.push_back(Vertex{vp2, vn, vt2, color});
+          Vertices.push_back(Vertex{vp3, vn, vt3, color});
+          Vertices.push_back(Vertex{vp4, vn, vt4, color});
+
+          Indices.push_back(index);
+          Indices.push_back(index + 1);
+          Indices.push_back(index + 2);
+          Indices.push_back(index + 2);
+          Indices.push_back(index + 1);
+          Indices.push_back(index + 3);
+
+          index += 4;
+        }
+      }
+    }
+
+    LogDebug("Generated 'Flat Sphere' object");
+    LogDebug(" - Stacks / Sectors: %d / %d", stackCount, sectorCount);
+    LogDebug(" - Vertex Count:     %d", Vertices.size());
+    LogDebug(" - Index Count:      %d", Indices.size());
   }
 };
 
@@ -792,9 +968,13 @@ struct LitMaterial : public Material {
   VkDescriptorPool DescriptorPool = VK_NULL_HANDLE;
   std::vector<VkBuffer> UniformBuffers;
   std::vector<VkDeviceMemory> UniformBufferMemories;
+  VkImage TextureImage = VK_NULL_HANDLE;
+  VkDeviceMemory TextureImageMemory = VK_NULL_HANDLE;
+  VkImageView TextureImageView = VK_NULL_HANDLE;
+  VkSampler TextureSampler = VK_NULL_HANDLE;
   std::vector<VkDescriptorSet> DescriptorSets;
 
-  LitMaterial() {
+  LitMaterial(const std::string& textureFile = "assets/textures/white.bmp") {
     if (!Initialized) {
       StaticInitialize();
     }
@@ -830,6 +1010,106 @@ struct LitMaterial : public Material {
       }
     }
 
+    // Texture
+    {
+      bool stbiLoaded = true;
+      I32 textureWidth, textureHeight, textureChannels;
+      stbi_uc* texturePixels = stbi_load(textureFile.c_str(), &textureWidth, &textureHeight,
+                                         &textureChannels, STBI_rgb_alpha);
+      if (!texturePixels) {
+        LogError("Failed to load texture for LitMaterial! Setting default...");
+        stbiLoaded = false;
+        texturePixels = new stbi_uc[4];
+        texturePixels[0] = 255;
+        texturePixels[1] = 255;
+        texturePixels[2] = 255;
+        texturePixels[3] = 255;
+        textureWidth = 1;
+        textureHeight = 1;
+        textureChannels = 4;
+      }
+
+      VkDeviceSize imageBufferSize = textureWidth * textureHeight * 4ll;
+      VkBuffer stagingBuffer;
+      VkDeviceMemory stagingDeviceMemory;
+      ASSERT(
+          CreateBuffer(imageBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                       stagingBuffer, stagingDeviceMemory));
+      void* data;
+      vkMapMemory(vk.Device, stagingDeviceMemory, 0, imageBufferSize, 0, &data);
+      memcpy(data, texturePixels, static_cast<size_t>(imageBufferSize));
+      vkUnmapMemory(vk.Device, stagingDeviceMemory);
+
+      ASSERT(CreateImage(textureWidth, textureHeight, VK_FORMAT_R8G8B8A8_SRGB,
+                         VK_IMAGE_TILING_OPTIMAL,
+                         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, TextureImage, TextureImageMemory));
+      TransitionImageLayout(TextureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED,
+                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+      CopyBufferToImage(stagingBuffer, TextureImage, static_cast<U32>(textureWidth),
+                        static_cast<U32>(textureHeight));
+      TransitionImageLayout(TextureImage, VK_FORMAT_R8G8B8A8_SRGB,
+                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+      vkDestroyBuffer(vk.Device, stagingBuffer, nullptr);
+      vkFreeMemory(vk.Device, stagingDeviceMemory, nullptr);
+
+      if (stbiLoaded) {
+        stbi_image_free(texturePixels);
+      } else {
+        delete texturePixels;
+      }
+
+      const VkImageViewCreateInfo createInfo{
+          VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,  // sType
+          nullptr,                                   // pNext
+          0,                                         // flags
+          TextureImage,                              // image
+          VK_IMAGE_VIEW_TYPE_2D,                     // viewType
+          VK_FORMAT_R8G8B8A8_SRGB,                   // format
+          {
+              VK_COMPONENT_SWIZZLE_IDENTITY,  // components.r
+              VK_COMPONENT_SWIZZLE_IDENTITY,  // components.g
+              VK_COMPONENT_SWIZZLE_IDENTITY   // components.b
+          },                                  // components
+          {
+              VK_IMAGE_ASPECT_COLOR_BIT,  // subresourceRange.aspectMask
+              0,                          // subresourceRange.baseMipLevel
+              1,                          // subresourceRange.levelCount
+              0,                          // subresourceRange.baseArrayLayer
+              1                           // subresourceRange.layerCount
+          }                               // subresourceRange
+      };
+      VkCall(vkCreateImageView(vk.Device, &createInfo, nullptr, &TextureImageView));
+    }
+
+    // Texture Samplers
+    {
+      constexpr static const VkSamplerCreateInfo createInfo{
+          VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,  // sType
+          nullptr,                                // pNext
+          0,                                      // flags
+          VK_FILTER_LINEAR,                       // magFilter
+          VK_FILTER_LINEAR,                       // minFilter
+          VK_SAMPLER_MIPMAP_MODE_LINEAR,          // mipmapMode
+          VK_SAMPLER_ADDRESS_MODE_REPEAT,         // addressModeU
+          VK_SAMPLER_ADDRESS_MODE_REPEAT,         // addressModeV
+          VK_SAMPLER_ADDRESS_MODE_REPEAT,         // addressModeW
+          0.0f,                                   // mipLodBias
+          VK_TRUE,                                // anisotropyEnable
+          16.0f,                                  // maxAnisotropy
+          VK_FALSE,                               // compareEnable
+          VK_COMPARE_OP_ALWAYS,                   // compareOp
+          0.0f,                                   // minLod
+          0.0f,                                   // maxLod
+          VK_BORDER_COLOR_INT_OPAQUE_BLACK,       // borderColor
+          VK_FALSE                                // unnormalizedCoordinates
+      };
+      VkCall(vkCreateSampler(vk.Device, &createInfo, nullptr, &TextureSampler));
+    }
+
     // Descriptor Sets
     {
       std::vector<VkDescriptorSetLayout> layouts(vk.SwapchainImageCount, DescriptorSetLayout);
@@ -852,19 +1132,39 @@ struct LitMaterial : public Material {
             sizeof(UniformBufferObject)  // range
         };
 
-        const VkWriteDescriptorSet descriptorWrites[] = {{
-            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,  // sType
-            nullptr,                                 // pNext
-            DescriptorSets[i],                       // dstSet
-            0,                                       // dstBinding
-            0,                                       // dstArrayElement
-            1,                                       // descriptorCount
-            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,       // descriptorType
-            nullptr,                                 // pImageInfo
-            &bufferInfo,                             // pBufferInfo
-            nullptr                                  // pTexelBufferView
+        const VkDescriptorImageInfo imageInfo{
+            TextureSampler,                           // sampler
+            TextureImageView,                         // imageView
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL  // imageLayout
+        };
 
-        }};
+        const VkWriteDescriptorSet descriptorWrites[] = {
+            {
+                VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,  // sType
+                nullptr,                                 // pNext
+                DescriptorSets[i],                       // dstSet
+                0,                                       // dstBinding
+                0,                                       // dstArrayElement
+                1,                                       // descriptorCount
+                VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,       // descriptorType
+                nullptr,                                 // pImageInfo
+                &bufferInfo,                             // pBufferInfo
+                nullptr                                  // pTexelBufferView
+
+            },
+            {
+                VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,     // sType
+                nullptr,                                    // pNext
+                DescriptorSets[i],                          // dstSet
+                1,                                          // dstBinding
+                0,                                          // dstArrayElement
+                1,                                          // descriptorCount
+                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,  // descriptorType
+                &imageInfo,                                 // pImageInfo
+                nullptr,                                    // pBufferInfo
+                nullptr                                     // pTexelBufferView
+
+            }};
 
         vkUpdateDescriptorSets(vk.Device, ArrLen(descriptorWrites), descriptorWrites, 0, nullptr);
       }
@@ -872,6 +1172,10 @@ struct LitMaterial : public Material {
   }
 
   ~LitMaterial() {
+    vkDestroySampler(vk.Device, TextureSampler, nullptr);
+    vkDestroyImageView(vk.Device, TextureImageView, nullptr);
+    vkDestroyImage(vk.Device, TextureImage, nullptr);
+    vkFreeMemory(vk.Device, TextureImageMemory, nullptr);
     for (U32 i = 0; i < vk.SwapchainImageCount; i++) {
       vkDestroyBuffer(vk.Device, UniformBuffers[i], nullptr);
       vkFreeMemory(vk.Device, UniformBufferMemories[i], nullptr);
@@ -894,7 +1198,16 @@ struct LitMaterial : public Material {
           nullptr                             // pImmutableSamplers
       };
 
-      constexpr static const VkDescriptorSetLayoutBinding bindings[] = {uboLayoutBinding};
+      constexpr static const VkDescriptorSetLayoutBinding samplerLayoutBinding{
+          1,                                          // binding
+          VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,  // descriptorType
+          1,                                          // descriptorCount
+          VK_SHADER_STAGE_FRAGMENT_BIT,               // stageFlags
+          nullptr                                     // pImmutableSamplers
+      };
+
+      constexpr static const VkDescriptorSetLayoutBinding bindings[] = {uboLayoutBinding,
+                                                                        samplerLayoutBinding};
 
       constexpr static const VkDescriptorSetLayoutCreateInfo layoutCreateInfo{
           VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,  // sType
@@ -1158,7 +1471,8 @@ struct LitMaterial : public Material {
     F32 cameraPos = 0.0f;
     ubo.Model = glm::mat4(1.0f);
     ubo.Model = glm::rotate(ubo.Model, glm::radians(15.0f) + time, glm::vec3(0.0f, 0.0f, 1.0f));
-    ubo.Model = glm::scale(ubo.Model, glm::vec3(0.7f, 0.7f, 0.7f));
+    ubo.Model = glm::scale(ubo.Model, glm::vec3(0.9f));
+    // ubo.Model = glm::translate(ubo.Model, glm::vec3(2.0f, 0.0f, 0.0f));
     ubo.View = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f),
                            glm::vec3(0.0f, 0.0f, 1.0f));
     ubo.Projection = glm::perspective(
@@ -1677,7 +1991,7 @@ struct UnlitTexturedMaterial : public Material {
     F32 cameraPos = 0.0f;
     ubo.Model = glm::mat4(1.0f);
     ubo.Model = glm::rotate(ubo.Model, glm::radians(25.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    // ubo.Model = glm::scale(ubo.Model, glm::vec3(10.0f, 10.0f, 10.0f));
+    ubo.Model = glm::scale(ubo.Model, glm::vec3(0.1f));
     ubo.View = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f),
                            glm::vec3(0.0f, 0.0f, 1.0f));
     ubo.Projection = glm::perspective(
@@ -2987,13 +3301,9 @@ void Run() {
   // =====
   // Load assets
   // =====
-  /*Object* obj = new Object(new Mesh("assets/models/viking_room.obj"),
-                           new UnlitTexturedMaterial("assets/textures/viking_room.png"));*/
-  // obj->Enable();
-  Object* cube = new Object(new Mesh("assets/models/cube.obj"), new LitMaterial());
-  cube->Enable();
-  Object* lightCube = new Object(new Mesh("assets/models/cube.obj"), new UnlitMaterial());
-  lightCube->Enable();
+  Object* obj =
+      new Object(new SphereMesh(1.0f, 36, 18), new LitMaterial("assets/textures/earth2048.jpg"));
+  obj->Enable();
 
   // =====
   // ImGUI Initialization
@@ -3085,6 +3395,7 @@ void Run() {
   // =====
   // Main application loop
   // =====
+  static char titleString[64];
   LogTrace("Beginning main application loop.");
   U32 currentFrame = 0;
   while (!app.CloseRequested) {
@@ -3093,6 +3404,10 @@ void Run() {
       TranslateMessage(&message);
       DispatchMessageW(&message);
     }
+
+    snprintf(titleString, 64, "VulkanSandbox - %.2fms (%.0f FPS)", 1000.0f / io.Framerate,
+             io.Framerate);
+    SetWindowTextA(app.Window, titleString);
 
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplWin32_NewFrame();
@@ -3242,9 +3557,7 @@ void Run() {
     ImGui_ImplVulkan_DestroyFontUploadObjects();
     ImGui_ImplVulkan_Shutdown();
     vkDestroyDescriptorPool(vk.Device, vk.ImguiPool, nullptr);
-    delete lightCube;
-    delete cube;
-    //delete obj;
+    delete obj;
     for (U32 i = 0; i < 2; i++) {
       vkDestroyFence(vk.Device, vk.InFlightFences[i], nullptr);
       vkDestroySemaphore(vk.Device, vk.RenderFinishedSemaphores[i], nullptr);
