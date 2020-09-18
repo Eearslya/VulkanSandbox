@@ -6,11 +6,15 @@ layout(location = 1) in vec3 inNormal;
 layout(location = 2) in vec2 inTexcoord;
 layout(location = 3) in vec3 inColor;
 
-layout(binding = 0) uniform UniformBufferObject {
-    mat4 model;
+layout(binding = 0) uniform GlobalUniformBufferObject {
     mat4 view;
     mat4 proj;
+    mat4 viewProj;
 } ubo;
+
+layout(binding = 1) uniform Model {
+    mat4 transform;
+} model;
 
 layout(location = 0) out vec3 vNormal;
 layout(location = 1) out vec3 vPosition;
@@ -18,9 +22,9 @@ layout(location = 2) out vec2 vTexcoord;
 layout(location = 3) out vec3 vColor;
 
 void main() {
-    gl_Position = ubo.proj * ubo.view * ubo.model * vec4(inPosition, 1.0);
-    vNormal = mat3(transpose(inverse(ubo.model))) * inNormal;
-    vPosition = vec3(ubo.model * vec4(inPosition, 1.0));
+    gl_Position = ubo.viewProj * vec4(inPosition, 1.0);
+    vNormal = mat3(transpose(inverse(model.transform))) * inNormal;
+    vPosition = vec3(model.transform * vec4(inPosition, 1.0));
     vTexcoord = inTexcoord;
     vColor = inColor;
 }

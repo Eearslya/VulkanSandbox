@@ -6,7 +6,7 @@ layout(location = 1) in vec3 vPosition;
 layout(location = 2) in vec2 vTexcoord;
 layout(location = 3) in vec3 vColor;
 
-layout(binding = 1) uniform sampler2D texSampler;
+layout(binding = 4) uniform sampler2D texSampler;
 
 layout(location = 0) out vec4 outColor;
 

@@ -5,4 +5,6 @@
 "C:\VulkanSDK\1.2.135.0\Bin\glslc.exe" ..\assets\shaders\Unlit.frag -o ..\assets\shaders\Unlit.frag.spv
 "C:\VulkanSDK\1.2.135.0\Bin\glslc.exe" ..\assets\shaders\Lit.vert -o ..\assets\shaders\Lit.vert.spv
 "C:\VulkanSDK\1.2.135.0\Bin\glslc.exe" ..\assets\shaders\Lit.frag -o ..\assets\shaders\Lit.frag.spv
+"C:\VulkanSDK\1.2.135.0\Bin\glslc.exe" ..\assets\shaders\Skybox.vert -o ..\assets\shaders\Skybox.vert.spv
+"C:\VulkanSDK\1.2.135.0\Bin\glslc.exe" ..\assets\shaders\Skybox.frag -o ..\assets\shaders\Skybox.frag.spv
 pause
